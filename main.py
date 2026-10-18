@@ -749,3 +749,39 @@ def download_facebook_audio(request: FacebookInfoRequest):
                 "Check the URL, content access and FFmpeg setup."
             ),
         )
+
+class FacebookVideoFormatDownloadRequest(BaseModel):
+    url: HttpUrl
+    format_id: str
+
+
+@app.post("/api/v1/facebook/download/selected")
+def facebook_download_selected(request: FacebookVideoFormatDownloadRequest):
+    try:
+        url = str(request.url)
+
+        output_dir = Path("downloads/facebook/video")
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        ydl_opts = {
+            "format": request.format_id,
+            "outtmpl": str(output_dir / "%(id)s.%(ext)s"),
+            "ffmpeg_location": r"C:\Users\ASUS\Downloads\ffmpeg-9.0.2-essentials_build\ffmpeg-9.0.2-essentials_build\bin\ffmpeg.exe",
+            "noplaylist": True,
+        }
+
+        with YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            file_path = ydl.prepare_filename(info)
+
+        return {
+            "success": True,
+            "platform": "Facebook",
+            "title": info.get("title"),
+            "format_id": request.format_id,
+            "file": file_path,
+            "message": "Selected video format downloaded successfully."
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
