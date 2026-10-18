@@ -67,42 +67,41 @@ def platforms():
             {
                 "id": "youtube",
                 "name": "YouTube",
-                "enabled": False,
-                "note": "Integration pending",
+                "enabled": True,
+                "note": "Video info, formats, video and audio downloads",
             },
             {
                 "id": "instagram",
                 "name": "Instagram",
-                "enabled": False,
-                "note": "Integration pending",
+                "enabled": True,
+                "note": "Profile, DP and Reels; Stories and Highlights may have limitations",
             },
             {
                 "id": "facebook",
                 "name": "Facebook",
-                "enabled": False,
-                "note": "Integration pending",
+                "enabled": True,
+                "note": "Video info, formats, video and audio; some content may require login",
             },
             {
                 "id": "pinterest",
                 "name": "Pinterest",
-                "enabled": False,
-                "note": "Integration pending",
+                "enabled": True,
+                "note": "Image and supported media downloads",
             },
             {
                 "id": "snapchat",
                 "name": "Snapchat",
-                "enabled": False,
-                "note": "Integration pending",
+                "enabled": True,
+                "note": "Spotlight video downloads; availability depends on the link",
             },
             {
                 "id": "chrome",
                 "name": "Chrome / Direct Link",
-                "enabled": False,
-                "note": "Supported direct media links integration pending",
+                "enabled": True,
+                "note": "Supported direct media URLs",
             },
         ]
     }
-
 
 class YouTubeInfoRequest(BaseModel):
     url: HttpUrl
