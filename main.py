@@ -678,3 +678,74 @@ def facebook_formats(request: FacebookInfoRequest):
         "title": result["title"],
         "available_video_formats": result["available_video_formats"],
     }
+
+# ==============================
+# FACEBOOK AUDIO DOWNLOADER
+# ==============================
+
+@app.post("/api/v1/facebook/download/audio")
+def download_facebook_audio(request: FacebookInfoRequest):
+    url = str(request.url)
+    hostname = request.url.host.lower()
+
+    allowed_hosts = {
+        "facebook.com",
+        "www.facebook.com",
+        "m.facebook.com",
+        "web.facebook.com",
+        "fb.watch",
+    }
+
+    if hostname not in allowed_hosts:
+        raise HTTPException(
+            status_code=400,
+            detail="Please provide a valid Facebook URL."
+        )
+
+    folder = Path("downloads/facebook/audio")
+    folder.mkdir(parents=True, exist_ok=True)
+
+    options = {
+        "format": "bestaudio/best",
+        "outtmpl": str(folder / "%(id)s.%(ext)s"),
+        "noplaylist": True,
+        "quiet": True,
+        "no_warnings": True,
+        "ffmpeg_location": (
+            r"C:\Users\ASUS\Downloads\ffmpeg-9.0.2-essentials_build"
+            r"\ffmpeg-9.0.2-essentials_build\bin\ffmpeg.exe"
+        ),
+        "postprocessors": [
+            {
+                "key": "FFmpegExtractAudio",
+                "preferredcodec": "mp3",
+                "preferredquality": "192",
+            }
+        ],
+    }
+
+    try:
+        with YoutubeDL(options) as ydl:
+            info = ydl.extract_info(url, download=True)
+
+        audio_id = info.get("id")
+        audio_file = folder / f"{audio_id}.mp3"
+
+        return {
+            "success": True,
+            "platform": "Facebook",
+            "title": info.get("title"),
+            "file": str(audio_file),
+            "format": "mp3",
+            "message": "Audio downloaded successfully.",
+        }
+
+    except Exception as exc:
+        print("FACEBOOK AUDIO DOWNLOAD ERROR:", repr(exc))
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Facebook audio download failed. "
+                "Check the URL, content access and FFmpeg setup."
+            ),
+        )
