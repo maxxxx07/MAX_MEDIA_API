@@ -785,3 +785,70 @@ def facebook_download_selected(request: FacebookVideoFormatDownloadRequest):
 
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+class FacebookStoryDownloadRequest(BaseModel):
+    url: HttpUrl
+
+
+@app.post("/api/v1/facebook/story/download")
+def facebook_story_download(request: FacebookStoryDownloadRequest):
+    try:
+        url = str(request.url)
+
+        output_dir = Path("downloads/facebook/stories")
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        ydl_opts = {
+            "format": "best",
+            "outtmpl": str(output_dir / "%(id)s.%(ext)s"),
+            "ffmpeg_location": r"C:\Users\ASUS\Downloads\ffmpeg-9.0.2-essentials_build\ffmpeg-9.0.2-essentials_build\bin\ffmpeg.exe",
+            "noplaylist": True,
+        }
+
+        with YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            file_path = ydl.prepare_filename(info)
+
+        return {
+            "success": True,
+            "platform": "Facebook",
+            "title": info.get("title"),
+            "file": file_path,
+            "message": "Facebook Story downloaded successfully."
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    
+class PinterestDownloadRequest(BaseModel):
+    url: HttpUrl
+
+
+@app.post("/api/v1/pinterest/download")
+def pinterest_download(request: PinterestDownloadRequest):
+    try:
+        url = str(request.url)
+
+        output_dir = Path("downloads/pinterest")
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        ydl_opts = {
+            "format": "best",
+            "outtmpl": str(output_dir / "%(id)s.%(ext)s"),
+            "noplaylist": True,
+            "ffmpeg_location": r"C:\Users\ASUS\Downloads\ffmpeg-9.0.2-essentials_build\ffmpeg-9.0.2-essentials_build\bin\ffmpeg.exe",
+        }
+
+        with YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            file_path = ydl.prepare_filename(info)
+
+        return {
+            "success": True,
+            "platform": "Pinterest",
+            "title": info.get("title"),
+            "file": file_path,
+            "message": "Pinterest media downloaded successfully."
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
