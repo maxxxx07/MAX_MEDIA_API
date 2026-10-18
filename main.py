@@ -1,12 +1,14 @@
-
-
 from datetime import datetime, timezone
+from pathlib import Path
+from urllib.parse import urlparse
+import requests
+import uuid
+import re
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, HttpUrl
+from pydantic import BaseModel, HttpUrl, Field
 from yt_dlp import YoutubeDL
-
 APP_NAME = "MAX MEDIA Master API"
 APP_VERSION = "1.0.0"
 
@@ -513,11 +515,32 @@ def instagram_highlights_download(request: InstagramHighlightsRequest):
     parsed = urlparse(highlights_url)
     host = (parsed.hostname or "").lower()
 
-    if parsed.scheme != "https" or host not in {"instagram.com", "www.instagram.com", "m.instagram.com"}:
-        raise HTTPException(status_code=400, detail="Invalid Instagram HTTPS URL.")
+    if (
+        parsed.scheme != "https"
+        or host not in {
+            "instagram.com",
+            "www.instagram.com",
+            "m.instagram.com",
+        }
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid Instagram HTTPS URL.",
+        )
 
-    if not parsed.path.startswith("/stories/highlights/"):
-        raise HTTPException(status_code=400, detail="Please provide an Instagram Highlights URL.")
+    is_highlights_url = (
+        parsed.path.startswith("/stories/highlights/")
+        or (
+            parsed.path.startswith("/s/")
+            and "story_media_id" in parsed.query
+        )
+    )
+
+    if not is_highlights_url:
+        raise HTTPException(
+            status_code=400,
+            detail="Please provide a valid Instagram Highlights URL.",
+        )
 
     folder = Path("downloads") / "instagram" / "highlights"
     folder.mkdir(parents=True, exist_ok=True)
@@ -531,6 +554,58 @@ def instagram_highlights_download(request: InstagramHighlightsRequest):
         "socket_timeout": 20,
         "retries": 2,
     }
+
+    try:
+        with YoutubeDL(options) as ydl:
+            info = ydl.extract_info(highlights_url, download=True)
+
+        entries = info.get("entries") if info else None
+        if entries is None:
+            entries = [info] if info else []
+
+        downloaded_files = []
+        for entry in entries:
+            if not entry:
+                continue
+
+            filename = ydl.prepare_filename(entry)
+            file_path = Path(filename)
+
+            if file_path.is_file():
+                downloaded_files.append({
+                    "file": str(file_path.resolve()),
+                    "file_name": file_path.name,
+                    "size_bytes": file_path.stat().st_size,
+                })
+
+        if not downloaded_files:
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    "No highlight media was downloaded. "
+                    "Instagram may require login or restrict access."
+                ),
+            )
+
+        return {
+            "status": "success",
+            "platform": "Instagram",
+            "type": "highlights",
+            "downloaded_count": len(downloaded_files),
+            "files": downloaded_files,
+            "note": "Files are saved locally on the API server.",
+        }
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "Could not download Highlights. Instagram may require "
+                f"login or restrict access. Error: {str(exc)[:250]}"
+            ),
+        )
 
     try:
         with YoutubeDL(options) as ydl:
@@ -785,6 +860,7 @@ def facebook_download_selected(request: FacebookVideoFormatDownloadRequest):
 
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
 class FacebookStoryDownloadRequest(BaseModel):
     url: HttpUrl
 
@@ -793,7 +869,6 @@ class FacebookStoryDownloadRequest(BaseModel):
 def facebook_story_download(request: FacebookStoryDownloadRequest):
     try:
         url = str(request.url)
-
         output_dir = Path("downloads/facebook/stories")
         output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -813,13 +888,18 @@ def facebook_story_download(request: FacebookStoryDownloadRequest):
             "platform": "Facebook",
             "title": info.get("title"),
             "file": file_path,
-            "message": "Facebook Story downloaded successfully."
+            "message": "Facebook Story downloaded successfully.",
         }
 
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
-    
+
+
 class PinterestDownloadRequest(BaseModel):
+    url: HttpUrl
+
+
+class SnapchatDownloadRequest(BaseModel):
     url: HttpUrl
 
 
@@ -827,8 +907,50 @@ class PinterestDownloadRequest(BaseModel):
 def pinterest_download(request: PinterestDownloadRequest):
     try:
         url = str(request.url)
-
         output_dir = Path("downloads/pinterest")
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        ydl_opts = {
+            "format": "best",
+            "outtmpl": str(output_dir / "%(id)s.%(ext)s"),
+            "noplaylist": True,
+            "ffmpeg_location": r"C:\Users\ASUS\Downloads\ffmpeg-9.0.2-essentials_build\ffmpeg-9.0.2-essentials_build\bin\ffmpeg.exe",
+        }
+
+        with YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            file_path = ydl.prepare_filename(info)
+
+        extension = Path(file_path).suffix.lower()
+        video_extensions = {".mp4", ".webm", ".mkv", ".mov", ".m4v"}
+        image_extensions = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+
+        if extension in video_extensions:
+            media_type = "video"
+        elif extension in image_extensions:
+            media_type = "image"
+        else:
+            media_type = "unknown"
+
+        return {
+            "success": True,
+            "platform": "Pinterest",
+            "title": info.get("title"),
+            "file": file_path,
+            "file_name": Path(file_path).name,
+            "media_type": media_type,
+            "message": "Pinterest media downloaded successfully.",
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/v1/snapchat/spotlight/download")
+def snapchat_spotlight_download(request: SnapchatDownloadRequest):
+    try:
+        url = str(request.url)
+        output_dir = Path("downloads/snapchat")
         output_dir.mkdir(parents=True, exist_ok=True)
 
         ydl_opts = {
@@ -844,11 +966,121 @@ def pinterest_download(request: PinterestDownloadRequest):
 
         return {
             "success": True,
-            "platform": "Pinterest",
+            "platform": "Snapchat",
             "title": info.get("title"),
             "file": file_path,
-            "message": "Pinterest media downloaded successfully."
+            "file_name": Path(file_path).name,
+            "media_type": "video",
+            "message": "Snapchat Spotlight video downloaded successfully.",
         }
 
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+class DirectMediaDownloadRequest(BaseModel):
+    url: HttpUrl
+
+
+@app.post("/api/v1/chrome/download")
+def chrome_direct_download(request: DirectMediaDownloadRequest):
+    try:
+        url = str(request.url)
+
+        allowed_hosts = {
+            "http",
+            "https",
+        }
+
+        if url.split(":", 1)[0].lower() not in allowed_hosts:
+            raise HTTPException(
+                status_code=400,
+                detail="Only HTTP and HTTPS URLs are allowed.",
+            )
+
+        output_dir = Path("downloads/direct")
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        ydl_opts = {
+            "format": "best",
+            "outtmpl": str(output_dir / "%(id)s.%(ext)s"),
+            "noplaylist": True,
+            "socket_timeout": 30,
+            "retries": 2,
+        }
+
+        with YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            file_path = ydl.prepare_filename(info)
+
+        extension = Path(file_path).suffix.lower()
+
+        video_extensions = {".mp4", ".webm", ".mkv", ".mov", ".m4v"}
+        audio_extensions = {".mp3", ".m4a", ".aac", ".wav", ".ogg", ".opus"}
+        image_extensions = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+
+        if extension in video_extensions:
+            media_type = "video"
+        elif extension in audio_extensions:
+            media_type = "audio"
+        elif extension in image_extensions:
+            media_type = "image"
+        else:
+            media_type = "unknown"
+
+        return {
+            "success": True,
+            "platform": "Chrome / Direct Link",
+            "title": info.get("title"),
+            "file": file_path,
+            "file_name": Path(file_path).name,
+            "media_type": media_type,
+            "message": "Media downloaded successfully.",
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+class WhatsAppStatusRequest(BaseModel):
+    file_name: str = Field(min_length=1, max_length=255)
+
+
+@app.post("/api/v1/whatsapp/status/import")
+def whatsapp_status_import(request: WhatsAppStatusRequest):
+    file_name = request.file_name
+
+    if (
+        file_name in {".", ".."}
+        or "/" in file_name
+        or "\\" in file_name
+        or not re.fullmatch(r"[A-Za-z0-9 _.-]+", file_name)
+    ):
+        raise HTTPException(status_code=400, detail="Invalid file name.")
+
+    base_dir = Path("downloads/whatsapp_status").resolve()
+    file_path = (base_dir / file_name).resolve()
+
+    if file_path.parent != base_dir or not file_path.is_file():
+        raise HTTPException(
+            status_code=404,
+            detail="File not found. Place your authorized status media in downloads/whatsapp_status first.",
+        )
+
+    allowed_extensions = {
+        ".mp4", ".jpg", ".jpeg", ".png", ".webp", ".gif"
+    }
+
+    if file_path.suffix.lower() not in allowed_extensions:
+        raise HTTPException(
+            status_code=415,
+            detail="Unsupported status media file type.",
+        )
+
+    return {
+        "success": True,
+        "platform": "WhatsApp Status",
+        "file": str(file_path),
+        "file_name": file_path.name,
+        "message": "Status media found successfully.",
+    }
